@@ -1,14 +1,10 @@
-# Self-edit: the gateway that can rewrite itself
+# self_edit
 
-`self_edit` is one tool that edits a file in **this repo** and redeploys. It is
-how the gateway changes itself. It is confined to the repo (paths that escape
-are refused — see `test/self-edit.test.ts`) and it really redeploys, so it is
-marked **destructive**.
+`self_edit` edits a file in **this repo** and redeploys. It is confined to the
+repo (paths that escape are refused — see `test/self-edit.test.ts`) and it
+redeploys, so it is marked **destructive**. Two ways to run it.
 
-There are two ways to run it, matching the first two rungs of the autonomy
-ladder in [`architecture.md`](architecture.md).
-
-## Rung 1 — local (operator plane)
+## Local
 
 `scripts/self-edit-mcp.ts` is a stdio MCP server. Point any local stdio MCP
 client at it:
@@ -28,10 +24,10 @@ client at it:
 It runs only on your machine. You invoke it; you read the result. Nothing about
 it touches the public endpoint.
 
-## Rung 2 — through the catalog (gated)
+## Through the catalog
 
-This is the interesting one: an agent calls `self_edit` **through your public
-`/mcp` endpoint**, and Executor pauses for your approval before it runs.
+An agent calls `self_edit` through your public `/mcp` endpoint, and Executor
+pauses for approval before it runs.
 
 1. Run the HTTP server with a secret:
 
@@ -74,18 +70,17 @@ This is the interesting one: an agent calls `self_edit` **through your public
    Execution paused: Edit and redeploy Executor
    ```
 
-   You approve, the local server edits the repo and redeploys, and the live
-   system reflects the change. The approval pause is the seatbelt.
+   You approve; the local server edits the repo and redeploys, and the live
+   system reflects the change.
 
-## Why this is safe enough to be fun
+## Controls
 
 - **Repo-confined.** It can only touch files under this repo. Tested.
-- **Bearer-guarded.** The HTTP server serves no one without the token.
-- **Authenticated transport.** The tunnel should sit behind auth; the bearer is
-  a second lock.
+- **Bearer-guarded.** The HTTP server serves no request without the token.
+- **Authenticated transport.** Keep the tunnel behind auth; the bearer is a
+  second lock.
 - **Approval-gated.** The destructive hint makes Executor stop for a human on
   every call.
 
-Remove the seatbelt (auto-approve, no proof) and you are at rung 4 with a loaded
-gun. Don't, until you've added rung 3 (a verification step that fails the deploy
-if the change didn't actually work).
+There is no auto-approve mode. Running it unattended would first need a
+verification step that fails the deploy when the change didn't actually take.

@@ -19,7 +19,7 @@ EXECUTOR_MCP_URL=https://executor.example.com/mcp
 
 ## Any stdio MCP client (Claude Code, Cursor, Pi, …)
 
-`scripts/mcp-bridge.ts` is a zero-dependency stdio → HTTP bridge. It loads
+`scripts/mcp-bridge.ts` is a zero-dependency stdio-to-HTTP bridge. It loads
 `.env.mcp` and attaches the Access headers, so the client config holds no
 secret. Point the client at the bridge with an absolute path to this repo:
 
