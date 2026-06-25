@@ -1,0 +1,23 @@
+{
+  "name": "executor-cloudflare-example",
+  "version": "0.0.1",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "bootstrap": "bun scripts/bootstrap.ts",
+    "deploy": "bun run bootstrap && alchemy deploy",
+    "destroy": "alchemy destroy",
+    "verify": "bun scripts/verify.ts",
+    "check": "bun test test/config.test.ts test/self-edit.test.ts && tsc --noEmit"
+  },
+  "dependencies": {
+    "@effect/platform-bun": "4.0.0-beta.84",
+    "@effect/platform-node": "4.0.0-beta.84",
+    "alchemy": "2.0.0-beta.57",
+    "effect": "4.0.0-beta.84"
+  },
+  "devDependencies": {
+    "@types/bun": "latest",
+    "typescript": "^5.9.3"
+  }
+}
