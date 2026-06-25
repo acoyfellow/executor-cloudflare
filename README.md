@@ -1,17 +1,19 @@
 # Executor on Cloudflare
 
 Deploy [Executor](https://github.com/RhysSullivan/executor) (an open-source
-integration layer for AI agents) to your own Cloudflare account in one command,
-private behind Cloudflare Access. Uses
+integration layer for AI agents) to your own Cloudflare account with one deploy
+command (after a short setup), private behind Cloudflare Access. Uses
 [Alchemy](https://github.com/alchemy-run/alchemy-effect) to declare the resource
 graph, including the Access application and policy.
 
-It also includes `self_edit`: a tool that edits this repo and redeploys. Exposed
-through the MCP endpoint, every call pauses for explicit approval before it runs.
+It also includes `self_edit`: a tool that edits this repo and redeploys. When an
+agent calls it through the MCP endpoint, Executor requests operator approval
+before dispatching. That is an interaction safeguard, not an authorization
+boundary; `self_edit` holds real deploy authority (see [self_edit](#self_edit)).
 
-- One command deploys everything, private by default.
+- One deploy command provisions everything; private once `bun run verify` passes.
 - Agents and CLIs reach `/mcp` with an Access service token — no browser.
-- `self_edit` can change the running deployment, gated by approval.
+- `self_edit` can change the running deployment, with an approval prompt.
 
 ## What it addresses
 
@@ -36,14 +38,18 @@ edges. This repo handles each:
   via the public endpoint. It is marked destructive, so Executor pauses for
   approval on every call.
 
-It is confined to this repo (paths outside it are refused — tested) and
-bearer-guarded. There is no unattended/auto-approve mode; running on a schedule
-would need a post-deploy verification step first. Detail:
+It rejects target paths that resolve outside this repo (tested) and requires a
+bearer token. Note that deployment executes code from this repo, so repository
+write access is effectively code execution with the deploy process's Cloudflare
+credentials — the path check and approval prompt are controls, not a sandbox.
+There is no auto-approve mode; running it unattended would need a post-deploy
+verification step that isn't built here. Detail:
 [`docs/self-edit.md`](docs/self-edit.md).
 
 ## What it creates
 
-All in **your** account; nothing hosted elsewhere.
+The runtime resources below are created in **your** account. (Deployment still
+pulls from GitHub and npm.)
 
 | Resource | Purpose |
 |---|---|
@@ -68,24 +74,31 @@ agents --> <your-host>/mcp --> catalog tools   (sandboxed; cannot deploy)
 operator --> self-edit (local) --> edit repo + redeploy
 ```
 
-Catalog tools run sandboxed and only call what they're connected to. `self_edit`
-is the exception: it can deploy, so it is marked destructive and Executor pauses
-for approval before running it.
+Both ordinary catalog tools and `self_edit` are reached through the one
+Access-protected `/mcp` ingress; they differ in authority, not in route. Most
+catalog tools only call what they're connected to. `self_edit` is the
+high-authority exception: it can deploy, so it's marked destructive and Executor
+requests approval before dispatching it.
 
 ## Prerequisites
 
-- [Bun](https://bun.sh) 1.3+
-- A Cloudflare account with Workers, D1, R2, Durable Objects, and Zero Trust
+- [Bun](https://bun.sh) 1.3+ and Git
+- A Cloudflare account where you can create Workers, D1, R2, Durable Objects,
+  Worker secrets, custom hostnames, and Zero Trust Access apps/policies/tokens
 - A hostname in a zone on that account (e.g. `executor.example.com`)
 - A Zero Trust team domain (e.g. `your-team.cloudflareaccess.com`)
 
-## Setup (~5 min)
+## Setup
+
+About 5 minutes once the prerequisites are ready (account enablement, Zero Trust
+onboarding, and the first Executor build can take longer). POSIX shell; on
+Windows use WSL.
 
 ```sh
 git clone https://github.com/acoyfellow/executor-cloudflare
 cd executor-cloudflare
 bun install
-cp .env.example .env   # set hostname, allowed email, team domain
+cp .env.example .env   # then edit it; the variables and examples are in that file
 bunx alchemy login
 bun run deploy
 ```
@@ -95,10 +108,14 @@ applies the stack:
 
 ```text
 Done: 8 succeeded
-{ url: "https://executor.example.com", mcpUrl: ".../mcp", ... }
+{ url: "https://executor.example.com", mcpUrl: "https://executor.example.com/mcp" }
 ```
 
-Re-running is a no-op for data resources (only the Worker updates).
+It also writes the generated Access service-token credentials to `.env.mcp`
+(git-ignored). Re-running with unchanged config reuses D1, R2, the Durable
+Object, secret, hostname, and Access; the Worker and assets may update. Review
+the plan before applying — changed config or lost Alchemy state can replace
+resources.
 
 ## Verify
 
@@ -110,15 +127,18 @@ bun run verify
 Anonymous request blocked by Cloudflare Access (302).
 ```
 
-Then open the URL, sign in with the allowed email, and use the console.
+This only proves anonymous requests are turned away. Also open the URL in a
+private window, sign in with the allowed email, and confirm the console loads.
 
 ## Connect an agent
 
-Agents reach `/mcp` with the Access **service token** the stack created — no
-browser. See [`docs/connect-clients.md`](docs/connect-clients.md). Quick check:
+Agents reach `/mcp` with the Access **service token** the stack wrote to
+`.env.mcp` — no browser. The client id/secret are a bearer credential to the
+Access endpoint; anyone holding them gets the same access. See
+[`docs/connect-clients.md`](docs/connect-clients.md). Quick check:
 
 ```sh
-CF_ACCESS_CLIENT_ID=... CF_ACCESS_CLIENT_SECRET=... bun run scripts/verify-mcp.ts
+bun --env-file=.env.mcp run scripts/verify-mcp.ts
 # -> Headless MCP initialize succeeded (200). No browser involved.
 ```
 
@@ -147,20 +167,24 @@ bun run check   # tests + typecheck, no Cloudflare credentials needed
 
 ## Security
 
-- Private behind Cloudflare Access; an unguessable URL is never relied on for privacy.
-- Sandboxed catalog tools can't deploy or edit the repo.
-- `self_edit` is repo-confined, bearer-guarded, and approval-gated; there is no
+- Cloudflare Access authenticates requests to the hostname; an unguessable URL
+  is never relied on for privacy. Access admits a client but does not authorize
+  individual tools.
+- Catalog tools get only their configured bindings; they have no deploy path.
+- `self_edit` is high-authority (repo write plus deploy). The path check, bearer
+  token, and approval prompt are controls, not a sandbox; there is no
   auto-approve mode.
-- Secrets live as Worker secrets, in Alchemy state, or in Executor's server-side
-  store — never committed. See [`SECURITY.md`](SECURITY.md).
+- Don't commit `.env`, `.env.mcp`, or Alchemy state. Treat MCP arguments and
+  `self_edit` diffs as sensitive in logs. See [`SECURITY.md`](SECURITY.md).
 
 ## Limitations
 
 - An example, not a product — use a non-production account until you've reviewed it.
 - Treat `destroy` as destructive; D1/R2/Access retention isn't fully characterized.
 - Pins one Executor revision and one Alchemy version.
-- No unattended self-edit: scheduling it would need a post-deploy verification
-  step that isn't built here.
+- No unattended self-edit, and no production observability or scale envelope —
+  add monitoring and load-test before relying on it.
+- Setup commands are tested on macOS/Linux; Windows is untested (use WSL).
 
 ## Layout
 
