@@ -8,7 +8,8 @@ graph, including the Access application and policy.
 
 - Deploy the whole graph with one command; private once `bun run verify` passes.
 - Agents and CLIs reach `/mcp` with an Access service token, no browser.
-- Update the pinned Executor version through the gateway, approval-gated.
+- Update the pinned Executor version by redeploying, locally or via an
+  approval-gated tool callable from the endpoint.
 
 ## Updating Executor's version
 
@@ -20,10 +21,12 @@ that pin and redeploying. Two ways:
 EXECUTOR_REVISION=<full-commit-sha> bun run deploy
 ```
 
-Remotely: `self_edit`, a tool on the gated `/mcp` endpoint, changes the pin in
-`scripts/bootstrap.ts`, rebuilds that revision, and redeploys. An update can come
-from any client that can reach the endpoint, not just the deploy machine.
-Every `self_edit` call is approval-gated. Walkthrough:
+Remotely: `self_edit` is a small server that runs where the repo and Cloudflare
+credentials live. You register it with Executor so it's callable from the gated
+`/mcp` endpoint. When called, it changes the pin, rebuilds that revision, and
+redeploys — the build and deploy run on that machine, not inside the Worker. So
+an update can be triggered from any client that can reach the endpoint, not just
+from the deploy machine directly. Every call is approval-gated. Walkthrough:
 [`docs/self-edit.md`](docs/self-edit.md).
 
 `self_edit` edits any file in this repo and redeploys, so it covers more than
@@ -112,14 +115,18 @@ bun --env-file=.env.mcp run scripts/verify-mcp.ts
 
 ## Architecture
 
-See [`docs/architecture.md`](docs/architecture.md). Both ordinary catalog tools
-and `self_edit` are reached through the one Access-protected `/mcp` ingress; they
-differ in authority, not route:
+See [`docs/architecture.md`](docs/architecture.md). Executor's sandboxed catalog
+tools can only call what they connect to; they can't deploy. `self_edit` is a
+separate server running where the repo and credentials live; registering it lets
+Executor call it through `/mcp`, but the build and redeploy happen on that
+machine, not in the Worker:
 
 ```text
-agents --> <your-host>/mcp --> catalog tools   (only call what they connect to)
-                                 self_edit       (changes the deploy; approval-gated)
-operator --> self-edit (local) --> edit pin + rebuild + redeploy
+agents --> <your-host>/mcp --> catalog tools     (sandboxed; can't deploy)
+                               self_edit (registered) --> server on the deploy
+                                                            machine: edit pin,
+                                                            rebuild, redeploy
+operator --> self_edit (local) --> same server, called directly
 ```
 
 `self_edit` rejects paths resolving outside this repo (tested) and requires a

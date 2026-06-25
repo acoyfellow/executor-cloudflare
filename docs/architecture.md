@@ -3,26 +3,26 @@
 Executor runs on your Cloudflare account, private behind Cloudflare Access. Two
 kinds of capability reach it, and they are deliberately kept apart.
 
-## Two planes, kept separate
+## Two planes
 
 ```text
-agents --> <your-host>/mcp --> catalog tools   (the work)
-                                 self_edit       (gated; rewrites + redeploys)
-                                 executor.*      (catalog mgmt, approval-gated)
-
-operator --> scripts/self-edit-mcp.ts --> edit repo + redeploy   (change the system)
+agents --> <your-host>/mcp --> catalog tools          (sandboxed; can't deploy)
+                               executor.*             (catalog mgmt, gated)
+                               self_edit (registered) --> deploy-machine server
+operator ------------------------------------------> same server, called directly
+                                                       (edit pin, rebuild, redeploy)
 ```
 
 ### Catalog plane (inside Executor)
 
-Normal tools live in the Executor catalog and run in Executor's sandbox. They
-can call APIs they are connected to. They **cannot** edit this repo or redeploy
-the Worker — the sandbox has no filesystem or deploy access, and no deploy tool
-exists in the catalog.
+Built-in catalog tools run in Executor's sandbox. They can call APIs they are
+connected to. They **cannot** edit this repo or redeploy the Worker: the sandbox
+has no filesystem or deploy access.
 
 You connect whatever tools you want into the catalog (OpenAPI specs, other MCP
-servers, OAuth integrations) from the Executor console. The one this repo ships
-is self-edit (below) — the gateway's ability to rewrite itself.
+servers, OAuth integrations) from the Executor console. `self_edit` is one of
+those connected servers (below). It does not run in the sandbox; Executor only
+*calls* it. The deploy itself happens on the machine running that server.
 
 Catalog management tools (`executor.openapi.addSpec`,
 `executor.coreTools.connections.*`) are themselves approval-gated by Executor:
@@ -30,25 +30,23 @@ adding a source or connection pauses for explicit acceptance.
 
 ### Operator plane (outside Executor)
 
-`scripts/self-edit-mcp.ts` is a separate, local stdio MCP server that can edit
-this repo and redeploy. It is **not** in the Executor catalog and is not
-reachable through the public endpoint. It runs only on the operator's machine,
-wired to a local MCP client the operator controls, and is confined to this repo
-— paths that escape the repo root are refused (`test/self-edit.test.ts`).
+`self_edit` edits this repo, rebuilds the pinned Executor revision, and
+redeploys. It always runs on the machine that holds the repo and Cloudflare
+credentials, because the Worker cannot deploy itself. It is confined to this repo
+(paths that escape the repo root are refused, `test/self-edit.test.ts`). Two ways
+to reach it:
 
-This separation is the safety model:
+- **Local:** `scripts/self-edit-mcp.ts`, a stdio server you call from a local MCP
+  client. Not registered with Executor, not reachable from the endpoint.
+- **Registered:** `scripts/self-edit-http.ts` behind an authenticated tunnel,
+  registered with `executor.mcp.addServer`, so Executor can call it through
+  `/mcp`. It is marked destructive, so Executor pauses every call for operator
+  approval before dispatching. The build and redeploy still run on the server's
+  machine, not in the Worker.
 
-- A confused or compromised catalog tool can read what it is connected to, but
-  cannot change the system or deploy.
-- Changing the system requires the operator plane, which lives on the
-  operator's machine, not behind the public endpoint.
-
-> The self-edit server can also be exposed *as a catalog tool*: run it over HTTP
-> behind an authenticated tunnel and register it with `executor.mcp.addServer`.
-> Because the tool is marked destructive, Executor pauses every call for operator
-> approval before it runs. This crosses the two-plane boundary on purpose, with
-> the approval gate, repo confinement, and an authenticated endpoint as the
-> controls. See [`self-edit.md`](self-edit.md).
+The controls are the same either way: repo confinement, a bearer token on the
+HTTP server, and the approval prompt. None of them sandbox the deploy itself,
+which runs with that machine's Cloudflare credentials.
 
 ## Auth
 
