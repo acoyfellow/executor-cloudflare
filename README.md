@@ -1,20 +1,33 @@
 # Executor on Cloudflare
 
-Deploy [Executor](https://github.com/RhysSullivan/executor) — an open-source
-integration layer for AI agents — to your own Cloudflare account in one command,
-private behind Cloudflare Access.
+A private agent gateway on **your own** Cloudflare account — that can rewrite and
+redeploy itself, with an approval gate as the seatbelt.
 
-It is a small, honest **example**: it vendors Executor's existing Cloudflare host
-and uses [Alchemy](https://github.com/alchemy-run/alchemy-effect) to declare the
-whole resource graph — including the Access application and policy — so you get a
-working, private installation without copying audience IDs between a shell, a
-README, and the dashboard.
+It deploys [Executor](https://github.com/RhysSullivan/executor) (an open-source
+integration layer for AI agents) in one command, private behind Cloudflare
+Access, using [Alchemy](https://github.com/alchemy-run/alchemy-effect) to declare
+the whole resource graph. Then it does the thing most "deploy this" examples
+won't: it gives an agent a tool — through the public endpoint — that edits this
+repo and redeploys the gateway, and makes every such call **stop for your yes**.
 
-- **One command** provisions and deploys everything.
-- **Private by default** — Access in front, `workers.dev` and previews off.
-- **Headless-ready** — a service token lets agents/CLIs reach `/mcp` with no browser.
-- **Optional self-edit demo** — an operator-gated, repo-confined tool that edits
-  this repo and redeploys (see [the demo](#optional-self-edit-demo)).
+- **One command** provisions and deploys everything, private by default.
+- **Headless-ready** — a service token lets agents/CLIs reach `/mcp`, no browser.
+- **Self-modifying, gated** — `self_edit` changes the running system and pauses
+  for approval on every call. The seatbelt is the feature.
+
+## The autonomy ladder
+
+This gateway can change itself. You decide how much of the loop to close — and
+you climb by *adding control*, not removing capability:
+
+1. **Invoked** — you call `self_edit`, you read the result.
+2. **Gated** — an agent proposes the change through the public endpoint; it
+   pauses for your approval. **This repo ships rungs 1–2.**
+3. **Verified** — a proof step runs after each change, so it can't redeploy a lie.
+4. **Looped** — it runs on a schedule, healing and extending itself.
+
+The approval gate and repo confinement are the seatbelt that lets you take your
+hands off the wheel one finger at a time. Full detail: [`docs/self-edit.md`](docs/self-edit.md).
 
 ## What it creates
 
@@ -39,11 +52,13 @@ Two planes, kept apart on purpose — see [`docs/architecture.md`](docs/architec
 
 ```text
 agents ──▶ <your-host>/mcp ──▶ catalog tools   (sandboxed; cannot deploy)
-operator ▶ self-edit (local) ▶ edit repo + redeploy   (changes the system)
+                                 self_edit       (gated; rewrites + redeploys)
+operator ▶ self-edit (local) ▶ edit repo + redeploy
 ```
 
-Catalog tools run in Executor's sandbox and can only call what they are
-connected to. Changing the system itself requires the local operator plane.
+Most catalog tools run sandboxed and can only call what they're connected to.
+`self_edit` is the deliberate exception: exposed with a destructive hint so
+Executor halts for your approval before it ever runs.
 
 ## Prerequisites
 
@@ -76,20 +91,15 @@ bunx alchemy login
 bun run deploy
 ```
 
-`deploy` checks out the pinned Executor commit under `vendor/`, installs and
-builds its Cloudflare app, then applies the Alchemy stack. First run prints the
-created resources and your URLs:
+`deploy` checks out the pinned Executor commit under `vendor/`, builds it, and
+applies the Alchemy stack. First run prints your URLs:
 
 ```text
 Done: 8 succeeded
-{
-  url: "https://executor.example.com",
-  mcpUrl: "https://executor.example.com/mcp",
-  ...
-}
+{ url: "https://executor.example.com", mcpUrl: "https://executor.example.com/mcp", ... }
 ```
 
-Re-running `deploy` is a no-op for the data resources (only the Worker updates).
+Re-running `deploy` is a no-op for data resources (only the Worker updates).
 
 ## Verify
 
@@ -97,21 +107,19 @@ Re-running `deploy` is a no-op for the data resources (only the Worker updates).
 bun run verify
 ```
 
-Expected — an anonymous request is turned away by Access, not served:
-
 ```text
 Anonymous request blocked by Cloudflare Access (302).
 Open https://executor.example.com in a browser to verify the signed-in experience.
 MCP endpoint: https://executor.example.com/mcp
 ```
 
-Then open the URL, sign in with the allowed email, and use the console.
+Sign in with the allowed email and use the console.
 
 ## Connect an agent
 
-Agents reach the private `/mcp` endpoint with the Access **service token** the
-stack created — no browser. Full details in
-[`docs/connect-clients.md`](docs/connect-clients.md). Quick headless check:
+Agents reach the private `/mcp` with the Access **service token** the stack
+created — no browser. See [`docs/connect-clients.md`](docs/connect-clients.md).
+Quick headless check:
 
 ```sh
 CF_ACCESS_CLIENT_ID=... CF_ACCESS_CLIENT_SECRET=... bun run scripts/verify-mcp.ts
@@ -121,41 +129,30 @@ CF_ACCESS_CLIENT_ID=... CF_ACCESS_CLIENT_SECRET=... bun run scripts/verify-mcp.t
 Headless MCP initialize succeeded (200). No browser involved.
 ```
 
-Read the token from Alchemy state:
+## The self-edit demo
 
-```sh
-bunx alchemy state get --stack ExecutorCloudflare --stage <stage> --fqn ExecutorAgent
-```
+The point of the repo. Two ways to run it, matching the ladder — full walkthrough
+in [`docs/self-edit.md`](docs/self-edit.md):
 
-## Add a tool (read-only Cloudflare example)
+- **Local (rung 1):** point a stdio MCP client at `bun run scripts/self-edit-mcp.ts`.
+  You invoke it; it edits the repo and redeploys.
+- **Through the catalog (rung 2):** run `scripts/self-edit-http.ts` behind an
+  authenticated tunnel, register it with `executor.mcp.addServer`, and an agent
+  on your endpoint can call `self_edit` — every call **pauses for your approval**:
 
-`integrations/cloudflare-readonly.openapi.json` is a curated, **GET-only** slice
-of the Cloudflare API: account, zones, Workers, D1, R2. It is read-only by
-construction — no write operations exist in the spec — so an agent cannot mutate
-your account through it. Add it from the Executor console (Add Source → paste
-the spec) or via the catalog tools, then enter a **read-only** Cloudflare API
-token in the UI. The token is stored server-side and never passes through an
-agent or this repo.
+  ```text
+  Execution paused: Edit and redeploy Executor
+  ```
 
-## Optional: self-edit demo
+  Approve, and the live gateway rewrites itself.
 
-`scripts/self-edit-mcp.ts` is a local stdio MCP server exposing one tool,
-`self_edit`, that edits a file in **this repo** and redeploys. It demonstrates a
-system that can change itself — safely:
-
-- **Repo-confined**: paths that escape the repo root are refused (tested).
-- **Operator-gated**: it runs only on your machine, invoked by a local MCP
-  client you control. It is never in the Executor catalog or reachable from the
-  public endpoint.
-- **Destructive**: it really redeploys. Review every call.
-
-Point a local stdio MCP client at `bun run scripts/self-edit-mcp.ts`. Exposing
-self-edit *through* Executor's catalog is possible but intentionally not shipped
-here; see the note in [`docs/architecture.md`](docs/architecture.md).
+It is repo-confined (paths escaping the repo are refused — tested) and bearer-
+guarded. Removing the gate without adding rung 3's verification is a loaded gun;
+don't.
 
 ## Update Executor
 
-The Executor revision is pinned in `scripts/bootstrap.ts`. Try another revision:
+The Executor revision is pinned in `scripts/bootstrap.ts`:
 
 ```sh
 EXECUTOR_REVISION=<full-commit-sha> bun run deploy
@@ -170,52 +167,49 @@ secret, hostname, and Access configuration in place.
 bun run destroy
 ```
 
-This removes the stack's resources. **It can delete D1 and R2 data** — do not
-run it against an installation whose data you need. Export anything you want to
-keep first.
+This removes the stack's resources. **It can delete D1 and R2 data** — don't run
+it against an installation whose data you need.
 
 ## Development
 
-Offline checks need no Cloudflare credentials:
-
 ```sh
-bun run check   # tests + typecheck
+bun run check   # tests + typecheck, no Cloudflare credentials needed
 ```
 
-`vendor/` (the Executor checkout), `.env`, `.env.mcp`, and Alchemy state are
-generated/local and git-ignored.
+`vendor/`, `.env`, `.env.mcp`, and Alchemy state are generated/local and git-ignored.
 
 ## Security model
 
-- The hostname is private behind Cloudflare Access; an unguessable URL is not
+- The hostname is private behind Cloudflare Access; an unguessable URL is never
   relied on for privacy.
-- Catalog tools run sandboxed and cannot deploy or edit the repo.
-- Self-edit lives only on the operator's machine and is repo-confined.
-- Secrets (encryption key, service token, integration tokens) are stored as
-  Worker secrets, in Alchemy state, or in Executor's server-side store — never
+- Sandboxed catalog tools cannot deploy or edit the repo.
+- `self_edit` is repo-confined, bearer-guarded, and approval-gated on every call.
+- Secrets (encryption key, service token, integration tokens) live as Worker
+  secrets, in Alchemy state, or in Executor's server-side store — never
   committed. See [`SECURITY.md`](SECURITY.md).
 
 ## Limitations
 
 - An example, not a packaged product. Use a non-production Cloudflare account
-  until you have reviewed it.
-- `destroy` retention behavior across D1/R2/Access has not been exhaustively
-  characterized; treat teardown as destructive.
-- Pins one Executor revision and one Alchemy version; newer versions may differ.
+  until you've reviewed it.
+- `destroy` retention across D1/R2/Access isn't exhaustively characterized;
+  treat teardown as destructive.
+- Pins one Executor revision and one Alchemy version.
+- Ships rungs 1–2 of the ladder. Rung 3 (verification) and rung 4 (unattended
+  loop) are yours to add — and you should add rung 3 before rung 4.
 
 ## Repository layout
 
 ```text
-alchemy.run.ts        the full resource graph (Worker, D1, R2, DO, secret, Access)
-src/config.ts         validated .env inputs
-scripts/bootstrap.ts  pin + build the vendored Executor
-scripts/verify.ts     anonymous-access check
-scripts/verify-mcp.ts headless MCP check (service token)
-scripts/mcp-bridge.ts stdio → HTTP bridge for local MCP clients
-scripts/self-edit-*   repo-confined self-edit (core + local stdio server)
-integrations/         curated read-only Cloudflare OpenAPI spec
-docs/                 architecture + client connection guide
-test/                 config + self-edit boundary tests
+alchemy.run.ts         the full resource graph (Worker, D1, R2, DO, secret, Access)
+src/config.ts          validated .env inputs
+scripts/bootstrap.ts   pin + build the vendored Executor
+scripts/verify.ts      anonymous-access check
+scripts/verify-mcp.ts  headless MCP check (service token)
+scripts/mcp-bridge.ts  stdio → HTTP bridge for local MCP clients
+scripts/self-edit-*    repo-confined self-edit: core, local stdio, catalog HTTP
+docs/                  architecture, self-edit, client connection
+test/                  config + self-edit boundary tests
 ```
 
 ## License

@@ -20,12 +20,9 @@ can call APIs they are connected to. They **cannot** edit this repo or redeploy
 the Worker — the sandbox has no filesystem or deploy access, and no deploy tool
 exists in the catalog.
 
-The example integration is `cloudflare` — a curated, **GET-only** slice of the
-Cloudflare API (`integrations/cloudflare-readonly.openapi.json`). It is
-read-only by construction: no create/update/delete operations exist in the
-spec, so an agent cannot mutate the account through it even if it tried. Adding
-it requires a read-only Cloudflare API token entered in the Executor UI; the
-token is stored server-side and never passes through an agent or this repo.
+You connect whatever tools you want into the catalog (OpenAPI specs, other MCP
+servers, OAuth integrations) from the Executor console. The one this repo ships
+is self-edit (below) — the gateway's ability to rewrite itself.
 
 Catalog management tools (`executor.openapi.addSpec`,
 `executor.coreTools.connections.*`) are themselves approval-gated by Executor:
@@ -46,13 +43,13 @@ This separation is the safety model:
 - Changing the system requires the operator plane, which lives on the
   operator's machine, not behind the public endpoint.
 
-> Advanced (not shipped here): the self-edit server can also be exposed *as a
-> catalog tool* by running it over HTTP behind an authenticated tunnel and
-> registering it with `executor.mcp.addServer`. Because the tool is marked
-> destructive, Executor pauses every call for explicit operator approval before
-> it runs. This collapses the two-plane boundary on purpose and should only be
-> done with that approval gate, repo confinement, and an authenticated
-> endpoint. This example keeps the planes separate by default.
+> The self-edit server can also be exposed *as a catalog tool* (rung 2): run it
+> over HTTP behind an authenticated tunnel and register it with
+> `executor.mcp.addServer`. Because the tool is marked destructive, Executor
+> pauses every call for explicit operator approval before it runs. This
+> deliberately collapses the two-plane boundary — with the approval gate, repo
+> confinement, and an authenticated endpoint as the controls. See
+> [`self-edit.md`](self-edit.md).
 
 ## Auth
 
@@ -63,9 +60,20 @@ This separation is the safety model:
   the operator in the Executor web UI via a connection handoff, stored
   server-side, never through an agent or this repo.
 
-## A note on unattended self-modification
+## The autonomy ladder
 
-In this example the operator is the gate: the operator plane runs only when
-invoked, and a human reads the result. Putting self-edit on a schedule
-(unattended self-modification) would need a verification/proof step so a change
-cannot be applied while misreporting success. That is out of scope here.
+This gateway can change itself. The question is only how much of the loop you
+close. Think of it as rungs, each one earned by the control below it:
+
+1. **Invoked** — you call `self_edit`, you read the result.
+2. **Gated** — an agent proposes the change *through the public endpoint*; it
+   pauses for your approval before anything runs. (This repo does 1 and 2.)
+3. **Verified** — a proof step runs after each change, so it can never redeploy
+   a lie.
+4. **Looped** — it runs on a schedule, healing and extending itself, surfacing
+   only what needs a human.
+
+The approval gate and repo confinement aren't there to forbid autonomy — they
+are the seatbelt that lets you take your hands off the wheel one finger at a
+time. You climb the ladder by adding control (rung 3's proof), not by removing
+capability. This repo hands you rungs 1–2 working and the wheel for the rest.
