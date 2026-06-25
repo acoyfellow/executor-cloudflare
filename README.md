@@ -15,6 +15,29 @@ repo and redeploys the gateway, and makes every such call **stop for your yes**.
 - **Self-modifying, gated** — `self_edit` changes the running system and pauses
   for approval on every call. The seatbelt is the feature.
 
+## Make Cloudflare a great place to self-host this
+
+Cloudflare is a strong self-hosting target for software like Executor, but the
+path from "clone the repo" to "running privately on my account" has rough edges:
+the Access wiring around the MCP endpoint, knowing the right Cloudflare moves to
+get it deployed at all, and keeping a fork from drifting out of date. This repo
+is an attempt to make that path smooth and worth copying:
+
+- **Get it deployed without knowing the Cloudflare-isms.** One command stands up
+  the whole graph — Worker, D1, R2, Durable Object, secret, hostname, and the
+  Access application *and policy* — declared in code. No deploy, copy the Access
+  audience by hand, then deploy again.
+- **Auth that fits how the thing is actually used.** Browser users sign in
+  through Cloudflare Access; agents and CLIs authenticate to the same private
+  `/mcp` with an Access **service token** — no browser, no separate login to
+  bolt on.
+- **Keep it up to date instead of letting forks rot.** The Executor version is
+  pinned; updating is `bump the revision -> redeploy`, and your data resources
+  (D1, R2, Durable Object, secret, hostname, Access) stay put.
+
+If these patterns are useful, they're meant to be lifted upstream or written up
+as "here's how to build self-hostable software on Cloudflare."
+
 ## The autonomy ladder
 
 This gateway can change itself. You decide how much of the loop to close — and
