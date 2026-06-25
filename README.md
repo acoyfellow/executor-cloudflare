@@ -31,7 +31,23 @@ edges. This repo handles each:
 
 ## self_edit
 
-`self_edit` edits a file in this repo and redeploys. It runs two ways:
+**Why this is in a deploy example:** deploying Executor gives you a private
+endpoint that agents talk to. An endpoint is only useful if agents can actually
+*do* things through it — so this repo ships one real tool to make that concrete.
+
+`self_edit` is that tool: it changes the very thing it runs on. An agent edits a
+file in this repo and redeploys, and the live site reflects the change. It's the
+most self-contained "do something real" example possible — it needs no extra
+account, API key, or third-party service, because it acts on the repo you already
+have in front of you.
+
+It's also where you learn the safety pattern you'd want around *any* powerful
+tool: nothing dangerous runs until a human approves it, and the tool can only
+touch this repo. Once that clicks here, you'd wire your own tools (deploy things,
+call APIs, run jobs) the same way. `self_edit` is the teaching example, not the
+product.
+
+It runs two ways:
 
 - **Local:** a stdio MCP server you invoke from your machine.
 - **Through the catalog:** registered as an MCP server so an agent can call it
