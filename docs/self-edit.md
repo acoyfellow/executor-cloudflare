@@ -1,8 +1,15 @@
 # self_edit
 
-`self_edit` edits a file in **this repo** and redeploys. It is confined to the
-repo (paths that escape are refused — see `test/self-edit.test.ts`) and it
-redeploys, so it is marked **destructive**. Two ways to run it.
+`self_edit` edits a file in **this repo** and redeploys. Its main job is updating
+the deployment to a newer Executor version remotely: the version is pinned in
+`scripts/bootstrap.ts`, and `self_edit` changes that pin, rebuilds the new
+revision, and redeploys. It is a general edit-and-redeploy tool, so it works for
+other changes too.
+
+It is confined to the repo (paths that escape are refused — see
+`test/self-edit.test.ts`) and it redeploys, so it is marked **destructive**. The
+deploy step re-runs `bootstrap`, so a changed Executor revision is actually
+checked out and built before deploying. Two ways to run it.
 
 ## Local
 

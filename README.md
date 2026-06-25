@@ -1,71 +1,47 @@
 # Executor on Cloudflare
 
 Deploy [Executor](https://github.com/RhysSullivan/executor) (an open-source
-integration layer for AI agents) to your own Cloudflare account with one deploy
-command (after a short setup), private behind Cloudflare Access. Uses
-[Alchemy](https://github.com/alchemy-run/alchemy-effect) to declare the resource
-graph, including the Access application and policy.
+integration layer for AI agents) to your own Cloudflare account, private behind
+Cloudflare Access — and update its version **remotely**, without a shell on the
+box. Uses [Alchemy](https://github.com/alchemy-run/alchemy-effect) to declare the
+resource graph, including the Access application and policy.
 
-It also includes `self_edit`: a tool that edits this repo and redeploys. When an
-agent calls it through the MCP endpoint, Executor requests operator approval
-before dispatching. That is an interaction safeguard, not an authorization
-boundary; `self_edit` holds real deploy authority (see [self_edit](#self_edit)).
+- **Deploy** the whole graph with one command, private once `bun run verify` passes.
+- **Connect** agents and CLIs to `/mcp` with an Access service token — no browser.
+- **Update** the pinned Executor version through the gateway, approval-gated.
 
-- One deploy command provisions everything; private once `bun run verify` passes.
-- Agents and CLIs reach `/mcp` with an Access service token — no browser.
-- `self_edit` can change the running deployment, with an approval prompt.
+## The point: remote version updates
 
-## What it addresses
+A self-hosted copy of something goes stale fast. Normally, updating it means
+getting back onto whatever machine deploys it. Here, the Executor version is
+pinned in `scripts/bootstrap.ts`, and `self_edit` — a tool reachable through the
+gated `/mcp` endpoint — can change that pin, rebuild the new version, and
+redeploy. So you (or an agent) can move the deployment to a newer Executor from
+anywhere that can reach the endpoint.
 
-Getting software like Executor running privately on Cloudflare has three rough
-edges. This repo handles each:
+`self_edit` is a general "edit a file in this repo and redeploy" tool, so it
+opens other doors too, but updating the Executor version is why it exists. Every
+call is **approval-gated**: nothing redeploys until a human says yes.
 
-- **Deploy.** One command provisions the whole graph — Worker, D1, R2, Durable
-  Object, secret, hostname, and the Access application and policy — in code. No
-  deploy, copy the Access audience by hand, then deploy again.
-- **Auth.** Browsers sign in through Access; agents and CLIs use an Access
-  service token against the same `/mcp`. No separate login.
-- **Updates.** The Executor version is pinned. Updating is bump-revision then
-  redeploy; D1, R2, the Durable Object, the secret, the hostname, and Access
-  are preserved.
+Two ways to update:
 
-## self_edit
+```sh
+# Hands-on, from the machine: override the pin and redeploy.
+EXECUTOR_REVISION=<full-commit-sha> bun run deploy
+```
 
-**Why this is in a deploy example:** deploying Executor gives you a private
-endpoint that agents talk to. An endpoint is only useful if agents can actually
-*do* things through it — so this repo ships one real tool to make that concrete.
+Remotely: call `self_edit` through the endpoint to change the pinned revision in
+`scripts/bootstrap.ts`; it re-checks-out and rebuilds that revision before
+deploying. Walkthrough: [`docs/self-edit.md`](docs/self-edit.md).
 
-`self_edit` is that tool: it changes the very thing it runs on. An agent edits a
-file in this repo and redeploys, and the live site reflects the change. It's the
-most self-contained "do something real" example possible — it needs no extra
-account, API key, or third-party service, because it acts on the repo you already
-have in front of you.
+Either way, D1, R2, the Durable Object, the secret, the hostname, and Access are
+preserved across the update.
 
-It's also where you learn the safety pattern you'd want around *any* powerful
-tool: nothing dangerous runs until a human approves it, and the tool can only
-touch this repo. Once that clicks here, you'd wire your own tools (deploy things,
-call APIs, run jobs) the same way. `self_edit` is the teaching example, not the
-product.
+## What deploy sets up
 
-It runs two ways:
-
-- **Local:** a stdio MCP server you invoke from your machine.
-- **Through the catalog:** registered as an MCP server so an agent can call it
-  via the public endpoint. It is marked destructive, so Executor pauses for
-  approval on every call.
-
-It rejects target paths that resolve outside this repo (tested) and requires a
-bearer token. Note that deployment executes code from this repo, so repository
-write access is effectively code execution with the deploy process's Cloudflare
-credentials — the path check and approval prompt are controls, not a sandbox.
-There is no auto-approve mode; running it unattended would need a post-deploy
-verification step that isn't built here. Detail:
-[`docs/self-edit.md`](docs/self-edit.md).
-
-## What it creates
-
-The runtime resources below are created in **your** account. (Deployment still
-pulls from GitHub and npm.)
+One command provisions the whole graph in code, so there's no "deploy, copy the
+Access audience by hand, deploy again" step. All resources are created in **your**
+account (deployment still pulls from GitHub and npm):
 
 | Resource | Purpose |
 |---|---|
@@ -79,22 +55,6 @@ pulls from GitHub and npm.)
 | Access service token + policy | headless agents/CLIs |
 
 `workers.dev` and preview URLs are off.
-
-## Architecture
-
-Two planes, kept apart — see [`docs/architecture.md`](docs/architecture.md):
-
-```text
-agents --> <your-host>/mcp --> catalog tools   (sandboxed; cannot deploy)
-                                 self_edit       (gated; rewrites + redeploys)
-operator --> self-edit (local) --> edit repo + redeploy
-```
-
-Both ordinary catalog tools and `self_edit` are reached through the one
-Access-protected `/mcp` ingress; they differ in authority, not in route. Most
-catalog tools only call what they're connected to. `self_edit` is the
-high-authority exception: it can deploy, so it's marked destructive and Executor
-requests approval before dispatching it.
 
 ## Prerequisites
 
@@ -128,10 +88,9 @@ Done: 8 succeeded
 ```
 
 It also writes the generated Access service-token credentials to `.env.mcp`
-(git-ignored). Re-running with unchanged config reuses D1, R2, the Durable
-Object, secret, hostname, and Access; the Worker and assets may update. Review
-the plan before applying — changed config or lost Alchemy state can replace
-resources.
+(git-ignored). Re-running with unchanged config reuses the data resources; the
+Worker and assets may update. Review the plan before applying — changed config
+or lost Alchemy state can replace resources.
 
 ## Verify
 
@@ -150,7 +109,7 @@ private window, sign in with the allowed email, and confirm the console loads.
 
 Agents reach `/mcp` with the Access **service token** the stack wrote to
 `.env.mcp` — no browser. The client id/secret are a bearer credential to the
-Access endpoint; anyone holding them gets the same access. See
+endpoint; anyone holding them gets the same access. See
 [`docs/connect-clients.md`](docs/connect-clients.md). Quick check:
 
 ```sh
@@ -158,14 +117,22 @@ bun --env-file=.env.mcp run scripts/verify-mcp.ts
 # -> Headless MCP initialize succeeded (200). No browser involved.
 ```
 
-## Update
+## Architecture
 
-```sh
-EXECUTOR_REVISION=<full-commit-sha> bun run deploy
+See [`docs/architecture.md`](docs/architecture.md). Both ordinary catalog tools
+and `self_edit` are reached through the one Access-protected `/mcp` ingress; they
+differ in authority, not route:
+
+```text
+agents --> <your-host>/mcp --> catalog tools   (only call what they connect to)
+                                 self_edit       (changes the deploy; approval-gated)
+operator --> self-edit (local) --> edit pin + rebuild + redeploy
 ```
 
-Replaces the Worker and assets; leaves D1, R2, Durable Object, secret, hostname,
-and Access in place.
+`self_edit` rejects paths resolving outside this repo (tested) and requires a
+bearer token. Deployment runs code from this repo, so repo-write is effectively
+code execution with the deploy process's Cloudflare credentials — the path check
+and approval prompt are controls, not a sandbox. There is no auto-approve mode.
 
 ## Teardown
 
@@ -184,12 +151,11 @@ bun run check   # tests + typecheck, no Cloudflare credentials needed
 ## Security
 
 - Cloudflare Access authenticates requests to the hostname; an unguessable URL
-  is never relied on for privacy. Access admits a client but does not authorize
+  is never relied on for privacy. Access admits a client but doesn't authorize
   individual tools.
 - Catalog tools get only their configured bindings; they have no deploy path.
-- `self_edit` is high-authority (repo write plus deploy). The path check, bearer
-  token, and approval prompt are controls, not a sandbox; there is no
-  auto-approve mode.
+- `self_edit` is high-authority (repo write plus deploy), guarded by a path
+  check, a bearer token, and an approval prompt — not a sandbox.
 - Don't commit `.env`, `.env.mcp`, or Alchemy state. Treat MCP arguments and
   `self_edit` diffs as sensitive in logs. See [`SECURITY.md`](SECURITY.md).
 
@@ -198,19 +164,18 @@ bun run check   # tests + typecheck, no Cloudflare credentials needed
 - An example, not a product — use a non-production account until you've reviewed it.
 - Treat `destroy` as destructive; D1/R2/Access retention isn't fully characterized.
 - Pins one Executor revision and one Alchemy version.
-- No unattended self-edit, and no production observability or scale envelope —
-  add monitoring and load-test before relying on it.
-- Setup commands are tested on macOS/Linux; Windows is untested (use WSL).
+- No unattended self-edit, and no production observability or scale envelope.
+- Setup is tested on macOS/Linux; Windows is untested (use WSL).
 
 ## Layout
 
 ```text
 alchemy.run.ts         resource graph (Worker, D1, R2, DO, secret, Access)
 src/config.ts          validated .env inputs
-scripts/bootstrap.ts   pin + build vendored Executor
+scripts/bootstrap.ts   pin + build vendored Executor (the version lives here)
 scripts/verify*.ts     anonymous-access + headless-MCP checks
 scripts/mcp-bridge.ts  stdio-to-HTTP bridge for local MCP clients
-scripts/self-edit-*    repo-confined self-edit (core, local stdio, catalog HTTP)
+scripts/self-edit-*    edit-and-redeploy tool (core, local stdio, catalog HTTP)
 docs/ · test/          architecture/self-edit/connect · config + boundary tests
 ```
 

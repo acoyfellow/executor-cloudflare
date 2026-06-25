@@ -57,7 +57,14 @@ export async function selfEdit(args: any): Promise<string> {
 
   if (!doDeploy) return `Edited ${args.path}. Not redeployed (deploy=false).`;
 
-  const out = await $`bunx alchemy deploy --yes`.cwd(repoRoot).text().catch((e) => String(e));
+  // Re-run bootstrap so a changed Executor revision is actually checked out and
+  // built before deploy. Without this, editing the pinned revision would only
+  // redeploy the already-built vendor/ (stale). This is what makes remote
+  // version updates real.
+  const out = await $`bun run bootstrap && bunx alchemy deploy --yes`
+    .cwd(repoRoot)
+    .text()
+    .catch((e) => String(e));
   const tail = out.trim().split('\n').slice(-8).join('\n');
-  return `Edited ${args.path} and redeployed.\n\n${tail}`;
+  return `Edited ${args.path}, rebuilt the pinned Executor, and redeployed.\n\n${tail}`;
 }
