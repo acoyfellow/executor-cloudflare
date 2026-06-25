@@ -2,40 +2,33 @@
 
 Deploy [Executor](https://github.com/RhysSullivan/executor) (an open-source
 integration layer for AI agents) to your own Cloudflare account, private behind
-Cloudflare Access — and update its version **remotely**, without a shell on the
-box. Uses [Alchemy](https://github.com/alchemy-run/alchemy-effect) to declare the
-resource graph, including the Access application and policy.
+Cloudflare Access, and update its version remotely. Uses
+[Alchemy](https://github.com/alchemy-run/alchemy-effect) to declare the resource
+graph, including the Access application and policy.
 
-- **Deploy** the whole graph with one command, private once `bun run verify` passes.
-- **Connect** agents and CLIs to `/mcp` with an Access service token — no browser.
-- **Update** the pinned Executor version through the gateway, approval-gated.
+- Deploy the whole graph with one command; private once `bun run verify` passes.
+- Agents and CLIs reach `/mcp` with an Access service token, no browser.
+- Update the pinned Executor version through the gateway, approval-gated.
 
-## The point: remote version updates
+## Updating Executor's version
 
-A self-hosted copy of something goes stale fast. Normally, updating it means
-getting back onto whatever machine deploys it. Here, the Executor version is
-pinned in `scripts/bootstrap.ts`, and `self_edit` — a tool reachable through the
-gated `/mcp` endpoint — can change that pin, rebuild the new version, and
-redeploy. So you (or an agent) can move the deployment to a newer Executor from
-anywhere that can reach the endpoint.
-
-`self_edit` is a general "edit a file in this repo and redeploy" tool, so it
-opens other doors too, but updating the Executor version is why it exists. Every
-call is **approval-gated**: nothing redeploys until a human says yes.
-
-Two ways to update:
+The Executor version is pinned in `scripts/bootstrap.ts`. Updating means changing
+that pin and redeploying. Two ways:
 
 ```sh
-# Hands-on, from the machine: override the pin and redeploy.
+# From the machine: override the pin and redeploy.
 EXECUTOR_REVISION=<full-commit-sha> bun run deploy
 ```
 
-Remotely: call `self_edit` through the endpoint to change the pinned revision in
-`scripts/bootstrap.ts`; it re-checks-out and rebuilds that revision before
-deploying. Walkthrough: [`docs/self-edit.md`](docs/self-edit.md).
+Remotely: `self_edit`, a tool on the gated `/mcp` endpoint, changes the pin in
+`scripts/bootstrap.ts`, rebuilds that revision, and redeploys. An update can come
+from any client that can reach the endpoint, not just the deploy machine.
+Every `self_edit` call is approval-gated. Walkthrough:
+[`docs/self-edit.md`](docs/self-edit.md).
 
-Either way, D1, R2, the Durable Object, the secret, the hostname, and Access are
-preserved across the update.
+`self_edit` edits any file in this repo and redeploys, so it covers more than
+version bumps, but version updates are its purpose. Across an update, D1, R2, the
+Durable Object, the secret, the hostname, and Access are preserved.
 
 ## What deploy sets up
 
@@ -89,8 +82,8 @@ Done: 8 succeeded
 
 It also writes the generated Access service-token credentials to `.env.mcp`
 (git-ignored). Re-running with unchanged config reuses the data resources; the
-Worker and assets may update. Review the plan before applying — changed config
-or lost Alchemy state can replace resources.
+Worker and assets may update. Review the plan before applying; changed config or
+lost Alchemy state can replace resources.
 
 ## Verify
 
@@ -108,7 +101,7 @@ private window, sign in with the allowed email, and confirm the console loads.
 ## Connect an agent
 
 Agents reach `/mcp` with the Access **service token** the stack wrote to
-`.env.mcp` — no browser. The client id/secret are a bearer credential to the
+`.env.mcp` (no browser). The client id/secret are a bearer credential to the
 endpoint; anyone holding them gets the same access. See
 [`docs/connect-clients.md`](docs/connect-clients.md). Quick check:
 
@@ -131,7 +124,7 @@ operator --> self-edit (local) --> edit pin + rebuild + redeploy
 
 `self_edit` rejects paths resolving outside this repo (tested) and requires a
 bearer token. Deployment runs code from this repo, so repo-write is effectively
-code execution with the deploy process's Cloudflare credentials — the path check
+code execution with the deploy process's Cloudflare credentials. The path check
 and approval prompt are controls, not a sandbox. There is no auto-approve mode.
 
 ## Teardown
@@ -155,13 +148,13 @@ bun run check   # tests + typecheck, no Cloudflare credentials needed
   individual tools.
 - Catalog tools get only their configured bindings; they have no deploy path.
 - `self_edit` is high-authority (repo write plus deploy), guarded by a path
-  check, a bearer token, and an approval prompt — not a sandbox.
+  check, a bearer token, and an approval prompt, not a sandbox.
 - Don't commit `.env`, `.env.mcp`, or Alchemy state. Treat MCP arguments and
   `self_edit` diffs as sensitive in logs. See [`SECURITY.md`](SECURITY.md).
 
 ## Limitations
 
-- An example, not a product — use a non-production account until you've reviewed it.
+- An example, not a product; use a non-production account until you've reviewed it.
 - Treat `destroy` as destructive; D1/R2/Access retention isn't fully characterized.
 - Pins one Executor revision and one Alchemy version.
 - No unattended self-edit, and no production observability or scale envelope.
